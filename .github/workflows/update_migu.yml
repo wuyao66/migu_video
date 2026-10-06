@@ -1,5 +1,8 @@
 name: update migu
-on: 
+于: 
+  # 原始的注释保留（下面启用了 schedule）
+  schedule:
+    - cron: '0 * * * *'
   #schedule: 
     #- cron: 0 * * * *
   workflow_dispatch:
