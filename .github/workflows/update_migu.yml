@@ -6,8 +6,8 @@ on:
   # 手动触发
   workflow_dispatch:
   # 外部调用触发（例如 CF Worker / 其他脚本）
-  repository_dispatch:
-    types: [mgcron]
+  # repository_dispatch:
+  #  types: [mgcron]
 
 jobs:
   main:
