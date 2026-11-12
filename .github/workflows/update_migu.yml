@@ -2,7 +2,7 @@ name: update migu
 on:
   # 定时任务：每小时整点执行一次
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
   # 手动触发
   workflow_dispatch:
   # 外部调用触发（例如 CF Worker / 其他脚本）
