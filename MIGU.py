@@ -10,6 +10,13 @@ from requests.exceptions import RequestException
 
 thread_num = 5  # 线程数
 
+# 软超时：超过该秒数即中止本次运行（外部步骤上限 12 分钟，留足余量）
+SOFT_DEADLINE_SEC = 480
+START_TIME = time.time()
+ABORT = False
+FAILED = []
+failed_lock = threading.Lock()
+
 headers = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -291,10 +298,24 @@ def getddCalcu720p(url, pID):
     return f'{url}&ddCalcu={"".join(ddCalcu)}&sv=10004&ct=android'
 
 
+def deadline_exceeded():
+    return (time.time() - START_TIME) > SOFT_DEADLINE_SEC
+
+
+def mark_failed(name, pid, reason):
+    with failed_lock:
+        FAILED.append((name, pid, reason))
+    print(f"频道 [{name}] (PID:{pid}) 记为失败：{reason}")
+
+
 def append_All_Live(live, flag, data):
+    global ABORT
     channel_name = data["name"]
     channel_pid = data["pID"]
-    
+
+    if ABORT:
+        return
+
     # 创建双向锁定组合键 (名字, pid)
     cache_key = (channel_name, channel_pid)
     
@@ -310,6 +331,11 @@ def append_All_Live(live, flag, data):
     base_delay = 2   
 
     for attempt in range(1, max_retries + 1):
+        # ✅ 修复点3：每次请求前检查软超时，避免整轮被外部 12 分钟硬杀
+        if deadline_exceeded():
+            ABORT = True
+            mark_failed(channel_name, channel_pid, "soft deadline exceeded")
+            return
         try:
             respData = get_content(channel_pid)
             raw_url = respData["body"]["urlInfo"]["url"]
@@ -333,12 +359,14 @@ def append_All_Live(live, flag, data):
                 time.sleep(delay)
             else:
                 print(f'频道 [{channel_name}] 更新失败！已达到最大重试次数。 ERROR: {e}')
+                mark_failed(channel_name, channel_pid, f"max retries: {e}")
 
 
 def update(live, url):
     global FLAG, All_Live
     pool = ThreadPoolExecutor(thread_num)
-    response = requests.get(url, headers=headers).json()
+    # ✅ 修复点2：列表请求加 timeout，原来无超时会永久挂住线程池
+    response = requests.get(url, headers=headers, timeout=20).json()
     # 提取初始列表
     rawList = response["body"]["dataList"]
     
@@ -355,6 +383,17 @@ def update(live, url):
         
     pool.shutdown()
 
+
+def write_failed():
+    if not FAILED:
+        return
+    with open('migu_failed.txt', 'w', encoding='utf-8') as f:
+        f.write(f"# 失败频道清单 {datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC\n")
+        for name, pid, reason in FAILED:
+            f.write(f"{name}\t{pid}\t{reason}\n")
+    print(f"\n失败频道数：{len(FAILED)}，明细见 migu_failed.txt")
+
+
 def main():
     # 使用 r'...' 原始字符串，完美保留你的预期内容，且绝对不会触发转义警告
     m3u_header = (
@@ -366,10 +405,18 @@ def main():
     writefile(path, m3u_header)
     
     for live in lives:
+        if ABORT:
+            break
         print(f"\n分类 ----- [{live}] ----- 开始更新...")
         url = f'https://program-sc.miguvideo.com/live/v2/tv-data/{LIVE[live]}'
         update(live, url)
     
+    write_failed()
+
+    if ABORT:
+        print("\n[ABORT] 已超过软超时限制，本次生成作废（仓库里的旧文件保持不变）")
+        raise SystemExit(3)
+
     for content in All_Live:
         if content:
             appendfile(path, content)
