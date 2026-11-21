@@ -1,15 +1,15 @@
 {
-  "last_run_utc": "2026-11-21T11:31:36Z",
-  "last_run_cst": "2026-11-21 19:31:36",
-  "status": "degraded",
-  "channels": 105,
-  "cctv_channels": 15,
-  "ok_channels": 105,
-  "failed_channels": 4,
-  "retries": 39,
-  "duration_sec": 276.9,
+  "last_run_utc": "2026-11-21T19:25:10Z",
+  "last_run_cst": "2026-11-22 03:25:10",
+  "status": "ok",
+  "channels": 106,
+  "cctv_channels": 17,
+  "ok_channels": 106,
+  "failed_channels": 0,
+  "retries": 0,
+  "duration_sec": 56.3,
   "exit_code_migu": 0,
   "exit_code_sort": 0,
-  "run_start": "2026-11-21T11:27:00Z",
-  "run_id": "44898458603"
+  "run_start": "2026-11-21T19:24:14Z",
+  "run_id": "44940740270"
 }
