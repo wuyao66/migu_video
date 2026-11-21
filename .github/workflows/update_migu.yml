@@ -1,48 +1,48 @@
 name: update migu
 on:
-  # 定时任务：每小时整点执行一次
+  # 定时任务：每小时 17 分（UTC），即北京时间每小时 17 分
   schedule:
     - cron: '17 * * * *'
   # 手动触发
   workflow_dispatch:
-  # 外部调用触发（例如 CF Worker / 其他脚本）
+  # 外部调用触发（例如 CF Worker / 其他脚本），需要时取消注释
   # repository_dispatch:
   #  types: [mgcron]
+
+# 防止并发：同一时刻只跑一个实例，排队不取消
+concurrency:
+  group: update-migu
+  cancel-in-progress: false
 
 jobs:
   main:
     name: update migu
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # 总超时，避免脚本卡死
+    timeout-minutes: 25   # 总超时（原 15，太紧）
     permissions:
-      contents: write  # 允许推送代码回仓库
+      contents: write     # 允许推送代码回仓库
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
 
     - name: Setup Python
       run: |
-          pip install requests futures
+        python3 -V
+        # concurrent.futures 是标准库，不需要装 futures 这个 py2 backport
+        pip install requests
 
+    # 抓取失败不再中断整个 job —— 继续走提交步骤，让 last_run.json 把失败记录下来
     - name: fetch and modify with Retry
+      id: fetch
+      continue-on-error: true
       uses: nick-fields/retry@v4
       with:
-        timeout_minutes: 5    # 单次尝试超时后，自动重试
-        max_attempts: 2       # 最多重试 2 次
-        retry_on: timeout     # 仅在超时场景触发重试
-        retry_wait_seconds: 30  # 每次重试间隔 30 秒
+        timeout_minutes: 12    # 单次尝试上限（原 5，就是它把正常运行杀掉了）
+        max_attempts: 3        # 最多 3 次（原 2）
+        retry_on: any          # 超时、报错都重试（原只重试 timeout）
+        retry_wait_seconds: 20
         command: |
-          # 先生成原始 M3U
-          python MIGU.py
-          # 再生成排序后的最终文件
-          python sort_m3u.py
-
-          # 这些是原仓库保留的可选下载逻辑，当前已注释，不启用
-          #wget https://github.com/482349841209/rakuten-m3u-generator/raw/refs/heads/master/output/rakuten.m3u -O rkt.m3u  -t 2 --waitretry=5
-          #wget https://github.com/Afiq0/Pluto-TV-Playlists/raw/refs/heads/main/output/plutotv_us.m3u8 -O plt.m3u  -t 2 --waitretry=5
-          #wget http://epg.51zmt.top:8000/e.xml -O e.xml  -T 30 -t 2 --waitretry=5 || true
-          #wget https://github.com/xiaolin330328/ctv/raw/d259f83949249d918e0dfe109fe1774df8819f1e/%E7%AC%AC%E4%BA%8C -O op.txt  -t 2 --waitretry=5
-          #sed -n '611,686p' op.txt > hm.txt
+          bash ./run_update.sh
 
     - name: CommitAndPush
       run: |
@@ -54,20 +54,34 @@ jobs:
         git config --global user.name "Github Actions"
 
         # 通过 GITHUB_TOKEN 克隆当前仓库，避免权限问题
-        git clone "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-        cd "$REPO_NAME" || exit 1
+        git clone "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "push_dir"
+        cd "push_dir" || exit 1
 
         # 把生成的文件移动回仓库目录
         [ -f "../migu.m3u" ] && mv ../migu.m3u ./migu.m3u || true
         [ -f "../cctv.migu.m3u" ] && mv ../cctv.migu.m3u ./cctv.migu.m3u || true
-        [ -f ../rkt.m3u ] && mv ../rkt.m3u ./rakutentv.m3u || true
-        [ -f ../plt.m3u ] && mv ../plt.m3u ./plutotv.m3u || true
+        [ -f "../last_run.json" ] && mv ../last_run.json ./last_run.json || true
+        [ -f "../migu_failed.txt" ] && mv ../migu_failed.txt ./migu_failed.txt || true
+
+        # 提交信息带上本次运行状态，便于一眼判断是否在正常更新
+        STATE="unknown"
+        if [ -f ./last_run.json ]; then
+          STATE=$(python3 -c "import json;d=json.load(open('last_run.json'));print(f\"{d['status']} ch={d['channels']} fail={d['failed_channels']} took={d['duration_sec']}s\")" 2>/dev/null || echo unknown)
+        fi
+        echo "state: ${STATE}"
 
         # 提交并推送
         git add .
         if git diff --cached --quiet; then
           echo "No changes to commit."
         else
-          git commit -m "Update: $(date +'%Y-%m-%d %H:%M:%S') UTC"
+          git commit -m "Update: $(date -u +'%Y-%m-%d %H:%M:%S') UTC | ${STATE}"
           git push origin main
         fi
+
+    # 抓取失败时，在提交完心跳之后再标记 job 失败，便于 Actions 列表里看到红
+    - name: Report failure
+      if: steps.fetch.outcome == 'failure'
+      run: |
+        echo "::error::抓取步骤失败，详见上方日志；last_run.json 已提交，可据此定位原因"
+        exit 1
