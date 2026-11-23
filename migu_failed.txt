@@ -1,5 +1,3 @@
-# 失败频道清单 2026-11-21 11:31:36 UTC
-CCTV3综艺	624878271	max retries: 'response'
-CCTV2财经	631780532	max retries: 'response'
-CCTV17农业农村	673168256	max retries: 'response'
-东方卫视	651632648	max retries: 'response'
+# 失败频道清单 2026-11-23 03:51:19 UTC
+CCTV5体育	641886683	max retries: HTTPSConnectionPool(host='workspace.apipost.net', port=443): Read timed out. (read timeout=15)
+CCTV3综艺	624878271	max retries: HTTPSConnectionPool(host='workspace.apipost.net', port=443): Read timed out. (read timeout=15)
